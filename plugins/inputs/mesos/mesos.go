@@ -575,7 +575,11 @@ func (m *Mesos) gatherSlaveTaskMetrics(u *url.URL, acc telegraf.Accumulator) err
 			return err
 		}
 
+		jf.Fields["cpu_total_time_secs"] = jf.Fields["cpus_user_time_secs"].(float64) +
+			jf.Fields["cpus_system_time_secs"].(float64)
+
 		timestamp := time.Unix(int64(jf.Fields["timestamp"].(float64)), 0)
+
 		acc.AddFields("mesos_tasks", jf.Fields, tags, timestamp)
 	}
 
