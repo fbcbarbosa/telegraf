@@ -254,7 +254,27 @@ func TestMain(m *testing.M) {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(masterMetrics)
 	})
+
 	masterTestServer = httptest.NewServer(masterRouter)
+
+	type Slave struct {
+		Hostname string `json:"hostname"`
+	}
+	type Slaves struct {
+		Slaves []Slave `json:"slaves"`
+	}
+
+	slaves := Slaves{
+		[]Slave{
+			{Hostname: masterTestServer.Listener.Addr().String()},
+		},
+	}
+
+	masterRouter.HandleFunc("/slaves", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(slaves)
+	})
 
 	slaveRouter := http.NewServeMux()
 	slaveRouter.HandleFunc("/metrics/snapshot", func(w http.ResponseWriter, r *http.Request) {
@@ -282,6 +302,24 @@ func TestMesosMaster(t *testing.T) {
 	m := Mesos{
 		Masters: []string{masterTestServer.Listener.Addr().String()},
 		Timeout: 10,
+	}
+
+	err := acc.GatherError(m.Gather)
+
+	if err != nil {
+		t.Errorf(err.Error())
+	}
+
+	acc.AssertContainsFields(t, "mesos", masterMetrics)
+}
+
+func TestMesosMasterAutoDiscover(t *testing.T) {
+	var acc testutil.Accumulator
+
+	m := Mesos{
+		Masters:      []string{masterTestServer.Listener.Addr().String()},
+		Timeout:      10,
+		AutoDiscover: true,
 	}
 
 	err := acc.GatherError(m.Gather)

@@ -27,6 +27,8 @@ const (
 )
 
 type Mesos struct {
+	AutoDiscover bool `toml:"auto_discover"`
+
 	Timeout    int
 	Masters    []string
 	MasterCols []string `toml:"master_collections"`
@@ -71,7 +73,9 @@ var sampleConfig = `
     "evqueue",
     "registrar",
   ]
-  ## A list of Mesos slaves, default is []
+  ## Enable autodiscover of slaves, default is false
+  # auto_discover = false
+  ## A list of Mesos slaves, default is [] (ignored if 'auto_discover' is true)
   # slaves = []
   ## Slave metrics groups to be collected, by default, all enabled.
   # slave_collections = [
@@ -138,6 +142,12 @@ func (m *Mesos) initialize() error {
 
 	rawQuery := "timeout=" + strconv.Itoa(m.Timeout) + "ms"
 
+	client, err := m.createHttpClient()
+	if err != nil {
+		return err
+	}
+	m.client = client
+
 	m.masterURLs = make([]*url.URL, 0, len(m.Masters))
 	for _, master := range m.Masters {
 		u, err := parseURL(master, MASTER)
@@ -147,6 +157,38 @@ func (m *Mesos) initialize() error {
 
 		u.RawQuery = rawQuery
 		m.masterURLs = append(m.masterURLs, u)
+
+		if m.AutoDiscover {
+
+			// will attempt to get slaves from master /slaves endpoint
+			resp, err := m.client.Get(withPath(u, "/slaves").String())
+
+			if err != nil {
+				return err
+			}
+
+			data, err := ioutil.ReadAll(resp.Body)
+			resp.Body.Close()
+			if err != nil {
+				return err
+			}
+
+			type Slave map[string]interface{}
+
+			type Slaves struct {
+				Slaves []Slave `json:"slaves"`
+			}
+
+			var slaves Slaves
+
+			if err = json.Unmarshal([]byte(data), &slaves); err != nil {
+				return errors.New("Error decoding JSON response")
+			}
+
+			for _, slave := range slaves.Slaves {
+				m.Slaves = append(m.Slaves, slave["hostname"].(string))
+			}
+		}
 	}
 
 	m.slaveURLs = make([]*url.URL, 0, len(m.Slaves))
@@ -159,12 +201,6 @@ func (m *Mesos) initialize() error {
 		u.RawQuery = rawQuery
 		m.slaveURLs = append(m.slaveURLs, u)
 	}
-
-	client, err := m.createHttpClient()
-	if err != nil {
-		return err
-	}
-	m.client = client
 
 	return nil
 }
