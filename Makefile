@@ -35,7 +35,7 @@ deps:
 	gdm restore --parallel false
 
 telegraf:
-	go build -i -o $(TELEGRAF) -ldflags "$(LDFLAGS)" ./cmd/telegraf/telegraf.go
+	CGO_ENABLED=0 GOOS=linux go build -i -o $(TELEGRAF) -ldflags "$(LDFLAGS)" ./cmd/telegraf/telegraf.go
 
 go-install:
 	go install -ldflags "-w -s $(LDFLAGS)" ./cmd/telegraf
