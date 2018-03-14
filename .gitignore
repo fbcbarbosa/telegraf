@@ -1,3 +1,4 @@
+telegraf_*.deb
 build
 /telegraf
 /telegraf.gz
