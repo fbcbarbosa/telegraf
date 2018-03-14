@@ -34,7 +34,7 @@ type Mesos struct {
 	MasterCols []string `toml:"master_collections"`
 	Slaves     []string
 	SlaveCols  []string `toml:"slave_collections"`
-	//SlaveTasks bool
+	SlaveTasks bool     `toml:"slave_tasks"`
 
 	// Path to CA file
 	SSLCA string `toml:"ssl_ca"`
@@ -77,6 +77,8 @@ var sampleConfig = `
   # auto_discover = false
   ## A list of Mesos slaves, default is [] (ignored if 'auto_discover' is true)
   # slaves = []
+  ## Enable task information, default is false 
+  # slave_tasks = true
   ## Slave metrics groups to be collected, by default, all enabled.
   # slave_collections = [
   #   "resources",
@@ -234,16 +236,16 @@ func (m *Mesos) Gather(acc telegraf.Accumulator) error {
 			return
 		}(slave)
 
-		// if !m.SlaveTasks {
-		// 	continue
-		// }
+		if !m.SlaveTasks {
+			continue
+		}
 
-		// wg.Add(1)
-		// go func(c string) {
-		// 	acc.AddError(m.gatherSlaveTaskMetrics(slave, acc))
-		// 	wg.Done()
-		// 	return
-		// }(v)
+		wg.Add(1)
+		go func(slave *url.URL) {
+			acc.AddError(m.gatherSlaveTaskMetrics(slave, acc))
+			wg.Done()
+			return
+		}(slave)
 	}
 
 	wg.Wait()
@@ -563,6 +565,8 @@ func (m *Mesos) gatherSlaveTaskMetrics(u *url.URL, acc telegraf.Accumulator) err
 
 	for _, task := range metrics {
 		tags["framework_id"] = task.FrameworkID
+		tags["executor_id"] = task.ExecutorID
+		tags["service"] = strings.Split(task.ExecutorID, ".")[0]
 
 		jf := jsonparser.JSONFlattener{}
 		err = jf.FlattenJSON("", task.Statistics)
@@ -572,8 +576,6 @@ func (m *Mesos) gatherSlaveTaskMetrics(u *url.URL, acc telegraf.Accumulator) err
 		}
 
 		timestamp := time.Unix(int64(jf.Fields["timestamp"].(float64)), 0)
-		jf.Fields["executor_id"] = task.ExecutorID
-
 		acc.AddFields("mesos_tasks", jf.Fields, tags, timestamp)
 	}
 
