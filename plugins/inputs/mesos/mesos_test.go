@@ -248,11 +248,37 @@ func generateMetrics() {
 func TestMain(m *testing.M) {
 	generateMetrics()
 
+	resources := make(map[string]interface{})
+	resources["cpu"] = 0.1
+	resources["mem"] = 512
+
+	tasks := TaskStats{
+		[]Task{
+			{
+				Name:        "test",
+				FrameworkID: "test",
+				State:       "test",
+				Labels: []Label{
+					{
+						Key:   "key",
+						Value: "val",
+					},
+				},
+				Resources: resources,
+			},
+		},
+	}
+
 	masterRouter := http.NewServeMux()
 	masterRouter.HandleFunc("/metrics/snapshot", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(masterMetrics)
+	})
+	masterRouter.HandleFunc("/tasks", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(tasks)
 	})
 
 	masterTestServer = httptest.NewServer(masterRouter)

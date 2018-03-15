@@ -226,6 +226,13 @@ func (m *Mesos) Gather(acc telegraf.Accumulator) error {
 			wg.Done()
 			return
 		}(master)
+
+		wg.Add(1)
+		go func(master *url.URL) {
+			acc.AddError(m.gatherMasterTaskMetrics(master, acc))
+			wg.Done()
+			return
+		}(master)
 	}
 
 	for _, slave := range m.slaveURLs {
@@ -532,15 +539,79 @@ func (m *Mesos) filterMetrics(role Role, metrics *map[string]interface{}) {
 	}
 }
 
-// TaskStats struct for JSON API output /monitor/statistics
+type Label struct {
+	Key   string `json:"key"`
+	Value string `json:"value"`
+}
+
+type Task struct {
+	Name        string                 `json:"name"`
+	FrameworkID string                 `json:"framework_id"`
+	State       string                 `json:"state"`
+	Labels      []Label                `json:"labels"`
+	Resources   map[string]interface{} `json:"resources"`
+}
+
 type TaskStats struct {
+	Tasks []Task `json:"tasks"`
+}
+
+func (m *Mesos) gatherMasterTaskMetrics(u *url.URL, acc telegraf.Accumulator) error {
+
+	var metrics TaskStats
+
+	tags := map[string]string{
+		"server": u.Hostname(),
+		"url":    urlTag(u),
+	}
+
+	resp, err := m.client.Get(withPath(u, "/tasks").String())
+
+	if err != nil {
+		return err
+	}
+
+	data, err := ioutil.ReadAll(resp.Body)
+	resp.Body.Close()
+	if err != nil {
+		return err
+	}
+
+	if err = json.Unmarshal([]byte(data), &metrics); err != nil {
+		return errors.New("Error decoding JSON response")
+	}
+
+	for _, task := range metrics.Tasks {
+		tags["framework_id"] = task.FrameworkID
+		tags["state"] = task.State
+		tags["name"] = task.Name
+
+		for _, label := range task.Labels {
+			tags["label_"+strings.ToLower(label.Key)] = label.Value
+		}
+
+		jf := jsonparser.JSONFlattener{}
+		err = jf.FlattenJSON("", task.Resources)
+
+		if err != nil {
+			return err
+		}
+
+		acc.AddFields("mesos_master_tasks", jf.Fields, tags, time.Now())
+	}
+
+	return nil
+}
+
+// Statistics struct for JSON API output /monitor/statistics
+type Statistics struct {
 	ExecutorID  string                 `json:"executor_id"`
 	FrameworkID string                 `json:"framework_id"`
 	Statistics  map[string]interface{} `json:"statistics"`
 }
 
 func (m *Mesos) gatherSlaveTaskMetrics(u *url.URL, acc telegraf.Accumulator) error {
-	var metrics []TaskStats
+	var metrics []Statistics
 
 	tags := map[string]string{
 		"server": u.Hostname(),
@@ -580,7 +651,7 @@ func (m *Mesos) gatherSlaveTaskMetrics(u *url.URL, acc telegraf.Accumulator) err
 
 		timestamp := time.Unix(int64(jf.Fields["timestamp"].(float64)), 0)
 
-		acc.AddFields("mesos_tasks", jf.Fields, tags, timestamp)
+		acc.AddFields("mesos_slave_tasks", jf.Fields, tags, timestamp)
 	}
 
 	return nil
