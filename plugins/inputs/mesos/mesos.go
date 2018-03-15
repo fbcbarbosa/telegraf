@@ -34,7 +34,9 @@ type Mesos struct {
 	MasterCols []string `toml:"master_collections"`
 	Slaves     []string
 	SlaveCols  []string `toml:"slave_collections"`
-	SlaveTasks bool     `toml:"slave_tasks"`
+
+	MasterTasks bool `toml:"master_tasks"`
+	SlaveTasks  bool `toml:"slave_tasks"`
 
 	// Path to CA file
 	SSLCA string `toml:"ssl_ca"`
@@ -61,6 +63,8 @@ var sampleConfig = `
   timeout = 100
   ## A list of Mesos masters.
   masters = ["http://localhost:5050"]
+  ## Enable master tasks information, default is false 
+  # master_tasks = false
   ## Master metrics groups to be collected, by default, all enabled.
   master_collections = [
     "resources",
@@ -226,6 +230,10 @@ func (m *Mesos) Gather(acc telegraf.Accumulator) error {
 			wg.Done()
 			return
 		}(master)
+
+		if !m.MasterTasks {
+			continue
+		}
 
 		wg.Add(1)
 		go func(master *url.URL) {
